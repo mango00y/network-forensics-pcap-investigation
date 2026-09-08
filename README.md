@@ -1,4 +1,4 @@
-# Network Forensics PCAP Investigation
+ Network Forensics PCAP Investigation
 
 Forensic analysis of a captured PCAP from a corporate network edge, identifying reconnaissance, C2 beaconing, and data exfiltration activity.
 
@@ -18,4 +18,4 @@ Wireshark / tshark
 Traffic profiling and endpoint identification → protocol breakdown and anomaly classification → pattern detection (port scans, beaconing, DNS tunneling) using packet timing, size distribution, and entropy analysis.
 
 ## Full Report
-See [`report/report evidence.docx`](report/report%20evidence.docx) for complete methodology, all endpoint/protocol breakdowns, and full IOC list.
+See [`report/PCAP_Investigation_Report.docx`](report/PCAP_Investigation_Report.docx) for complete methodology, all endpoint/protocol breakdowns, and full IOC list.
