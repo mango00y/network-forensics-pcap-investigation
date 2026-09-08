@@ -1,109 +1,21 @@
-# pentest-ai (ptai) — Deployment, Migration & Findings
+# Network Forensics PCAP Investigation
 
-Deployed [pentest-ai](https://github.com/0xSteph/pentest-ai) (ptai) — an
-open-source, offense-only AI pentesting CLI (205+ tools, 17 specialist
-agents, self-verifying findings) — on Kali Linux, configured with a
-Groq-hosted LLM backend, and ran authorized scans against a self-hosted lab
-target. Documented below with full command output, a mid-project LLM
-provider migration, and real findings against my own lab environment.
+Forensic analysis of a captured PCAP from a corporate network edge, identifying reconnaissance, C2 beaconing, and data exfiltration activity.
 
-**pentest-ai itself is third-party, MIT-licensed software by
-[0xSteph](https://github.com/0xSteph).** This repo documents my own
-deployment, configuration, troubleshooting, and scan results — not a claim
-of authorship over the tool.
+## Scenario
+Investigated a suspicious 409-packet PCAP capture (~25s window) to identify malicious activity and produce actionable intelligence — port scanning, malware beaconing, and DNS tunneling.
 
-## Stack
+## Tools
+Wireshark / tshark
 
-- Kali Linux (VMware)
-- LLM backend: Groq API, OpenAI-compatible endpoint
-- Lab target: self-hosted Metasploitable2, isolated host-only VMware network
-- Authorization: explicit self-owned lab environment, per ptai's AUP
+## Key Findings
+- **Reconnaissance:** `10.4.23.102` performed horizontal + vertical SYN port scanning against 5 external hosts across 15 ports (21, 22, 23, 25, 80, 135, 139, 443, 445, 1433, 3306, 3389, 5555, 8080, 8443) — 90 SYN packets with no ACK response, ~0.16s average interval between attempts (automated tooling, not manual).
+- **C2 Beaconing:** Periodic communication between `10.4.23.102` and `206.189.23.191` over **TCP/5555**, ~1.17s average interval, highly consistent packet sizes (54/58 bytes) — classic beacon signature.
+- **DNS Tunneling:** ~40 high-entropy DNS queries to `up.exfsync-cdn.net` with hex-encoded subdomains (~48 chars, entropy ~3.6–3.9 bits/char), all within a 1-second window — strong indicator of DNS-based data exfiltration.
+- **Suspicious HTTP activity:** `CertUtil URL Agent` user-agent (known LOLBin abuse pattern) and a direct request for `/good.exe`.
 
-## Walkthrough
+## Methodology
+Traffic profiling and endpoint identification → protocol breakdown and anomaly classification → pattern detection (port scans, beaconing, DNS tunneling) using packet timing, size distribution, and entropy analysis.
 
-### 1. Install
-```bash
-sudo apt install -y pipx
-pipx install ptai
-pipx ensurepath
-source ~/.zshrc
-```
-![install](evidence/01-install.png)
-
-### 2. Validate with the built-in proof-of-concept demo
-```bash
-ptai demo
-```
-4 findings on the vulnerable build (reflected XSS, open redirect, SQLi
-login bypass, path traversal), 3 oracle-verified, replay-confirmed against
-the live target, 0 findings on the hardened twin.
-
-![demo](evidence/02-demo-oracle-verified.png)
-
-### 3. Configure the Groq LLM backend
-```bash
-export OPENAI_API_KEY=your_groq_key
-export OPENAI_BASE_URL=https://api.groq.com/openai/v1
-export PENTEST_AI_LLM_PROVIDER=openai
-ptai doctor
-```
-Initially resolved to `llama-3.3-70b-versatile`, provider validated.
-
-![doctor before](evidence/03-doctor-before-deprecation.png)
-
-### 4. Mid-project model deprecation — migrated backend
-Groq deprecated `llama-3.3-70b-versatile` (announced Jun 17 2026,
-decommissioned Aug 16 2026) partway through this project — live scans
-started failing with `model_not_found` (HTTP 404). Migrated to Groq's
-official recommended replacement:
-```bash
-sed -i 's/llama-3.3-70b-versatile/openai\/gpt-oss-120b/' ~/.zshrc
-source ~/.zshrc
-ptai doctor
-```
-Re-validated clean: `Resolved provider: openai`, `Model: openai/gpt-oss-120b`,
-`Reachability: OK - provider validated`.
-
-![doctor after](evidence/04-doctor-after-migration.png)
-
-### 5. Real scan against a self-hosted Metasploitable2 lab target
-```bash
-ptai start 150.1.7.104:8180 --scope full --intensity normal --no-llm
-```
-Ran in deterministic (`--no-llm`) mode after `gpt-oss-120b` hit Groq's
-free-tier rate limit (8000 TPM) mid-agent-loop on live-target scans.
-17 findings: 16 INFO, 1 MEDIUM.
-
-![scan](evidence/05-scan-metasploitable2.png)
-
-### 6. Findings
-```bash
-ptai findings 1051ec87
-```
-All 17 findings `confirmed`. The MEDIUM finding (`/admin` exposure) flags
-Tomcat's Manager/Host-Manager interfaces reachable on the target — on
-Metasploitable2 these commonly run default credentials (`tomcat`/`tomcat`),
-a known escalation path to full WAR-deployment RCE. Manual credential
-verification is the natural next step to escalate this from discovery-tier
-to a confirmed auth bypass.
-
-![findings](evidence/06-findings-table.png)
-
-## Issues hit and resolved
-
-- **Groq model deprecation mid-project** — `llama-3.3-70b-versatile`
-  stopped resolving; migrated to `openai/gpt-oss-120b` and re-validated.
-- **Free-tier rate limiting** — `gpt-oss-120b` hit Groq's 8000 TPM cap a
-  few iterations into the LLM-driven agent loop against a live target;
-  switched to `--no-llm` for the deterministic orchestrator pipeline.
-- **`InvalidUrlClientError` on bare IP / scheme-only URL** — ptai's
-  HTTP-layer scanning needed an explicit `IP:PORT` target
-  (`150.1.7.104:8180`), not a bare IP or `http://IP`.
-- **`amass`/`theharvester` timing out regardless of `--scope`** — these
-  domain-enumeration tools ran (and hit their 60s timeout) even under
-  `--scope web`/`--scope full`, which shouldn't need subdomain/OSINT
-  modules for an internal IP target with no DNS name — looks like a
-  scope-gating bug in ptai itself.
-
-**Authorized testing only.** Every scan here ran against infrastructure I
-own and control (a self-hosted Metasploitable2 VM on an isolated network).
+## Full Report
+See [`report/report evidence.docx`](report/report%20evidence.docx) for complete methodology, all endpoint/protocol breakdowns, and full IOC list.
